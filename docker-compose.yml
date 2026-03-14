@@ -1,0 +1,84 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smr_postgres
+    environment:
+      POSTGRES_DB: sharemyrecipe
+      POSTGRES_USER: smr_user
+      POSTGRES_PASSWORD: smr_pass
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U smr_user -d sharemyrecipe']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: smr_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: smr_user
+      RABBITMQ_DEFAULT_PASS: smr_pass
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./sharemyrecipe-api
+      dockerfile: Dockerfile
+    container_name: smr_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/sharemyrecipe
+      SPRING_DATASOURCE_USERNAME: smr_user
+      SPRING_DATASOURCE_PASSWORD: smr_pass
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: smr_user
+      SPRING_RABBITMQ_PASSWORD: smr_pass
+      APP_JWT_SECRET: 'change-me-in-production-must-be-at-least-32-chars'
+      APP_JWT_ACCESS_TTL_MS: 900000
+      APP_JWT_REFRESH_TTL_MS: 604800000
+      APP_UPLOAD_DIR: /app/uploads
+    ports:
+      - '8080:8080'
+    volumes:
+      - uploads:/app/uploads
+
+  worker:
+    build:
+      context: ./sharemyrecipe-worker
+      dockerfile: Dockerfile
+    container_name: smr_worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/sharemyrecipe
+      SPRING_DATASOURCE_USERNAME: smr_user
+      SPRING_DATASOURCE_PASSWORD: smr_pass
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: smr_user
+      SPRING_RABBITMQ_PASSWORD: smr_pass
+
+volumes:
+  pgdata:
+  uploads:
